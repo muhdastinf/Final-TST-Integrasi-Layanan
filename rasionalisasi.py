@@ -132,7 +132,7 @@ async def register_user(user: UserData):
             with connection.cursor() as cursor:
                 cursor.execute("INSERT INTO user_data VALUES (?, ?, ?, ?, ?)", (next_user_id, user.userName, user.emailUser, hash_password(user.passwordUser), access_token))
                 connection.commit()
-                return f"Username `{user.userName}` successfully registered"
+                return f"Username {user.userName} with id user {next_user_id} successfully registered"
         finally:
             connection.close()
 
@@ -439,6 +439,7 @@ async def integrasi_doConsult_me(token: str=Depends(oauth2_scheme)):
         'Authorization': 'Bearer ' + integrasiToken,
     }
     response = requests.post(url, headers=headers, timeout=10)
+    
     return response.json()
 
 @app.get("/integrasi-consultation-history", tags=["Integrasi: Layanan Konsultasi Sneakers"])
@@ -454,3 +455,41 @@ async def integrasi_consultation_history(token: str=Depends(oauth2_scheme)):
     }
     response = requests.get(url, headers=headers, timeout=10)
     return response.json()
+
+@app.post("/integrasi-consultation-with-rasionalisasi-nilai", tags=["Integrasi: Hasil Rasionalisasi sebagai Dasar Pemilihan Sneakers"])
+async def integrasi_doConsult_me(item: InputUser, token: str = Depends(oauth2_scheme)):
+    connection = create_connection()
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT tokenIntegrasi FROM user_data WHERE userName=?", (token))
+        integrasiToken = cursor.fetchone()[0]
+
+    url = 'http://sneakersbandung.hzgecqhehxbtanhv.southeastasia.azurecontainer.io/doconsult/me'
+    headers = {
+        'accept': 'application/json',
+        'Authorization': 'Bearer ' + integrasiToken,
+    }
+    
+    response = requests.post(url, headers=headers, timeout=10)
+
+    if response.status_code == 200:
+        # Call your rasionalisasi function and get the prediction
+        arr_input = [item.nilaiMatW, item.nilaiMatM, item.nilaiFis, item.nilaiKim, item.nilaiBio, item.nilaiInd, item.nilaiIng]
+        rasionalisasi_result = calculate_rasionalisasi(item.kampusTujuan, arr_input)
+
+        # Get the sneaker name from the "doconsult" response
+        sneaker_name = response.json().get("sneaker_name")
+
+        # Combine the results
+        if rasionalisasi_result == f"Anda berpeluang LULUS {item.kampusTujuan} pada SNMPTN 2024.":
+            # Provide consultation services only when the user passes
+            result = (
+                f"Selamat! Anda lulus dan berhak mendapatkan layanan konsultasi langsung. "
+                f"Rasionalisasi result for {item.userName} with id user {item.idUser}: {rasionalisasi_result} "
+                f"For appreciation we give you recommendation to buy: {sneaker_name}"
+            )
+            return result
+        else:
+            # Inform the user that they did not pass
+            return f"Maaf, Anda belum lulus. {rasionalisasi_result}"
+    else:
+        raise HTTPException(status_code=response.status_code, detail="Error calling doconsult endpoint")
